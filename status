@@ -1,0 +1,206 @@
+#!/usr/bin/env ruby
+
+require "csv"
+require "json"
+require "rest-client"
+require "thor"
+
+module Status
+  class CLI < Thor
+    class_option :quiet, type: :boolean, default: false
+    class_option :raw, type: :boolean, default: false
+
+    no_tasks do
+      def logger
+        @logger ||= Logger.new("status.log")
+      end
+
+      def client_id
+        ENV["CLIENT_ID"]
+      end
+
+      def client_secret
+        ENV["CLIENT_SECRET"]
+      end
+
+      def protocol
+        "https"
+      end
+
+      def base_url
+        ENV["BASE_URL"] || "nih.scientist.com"
+      end
+
+      def token_url
+        "#{protocol}://#{client_id}:#{client_secret}@#{base_url}/oauth/token?grant_type=client_credentials"
+      end
+
+      def api_url
+        "#{protocol}://#{base_url}/api"
+      end
+
+      def provider_url(provider_id)
+        "#{api_url}/providers/#{provider_id}.json"
+      end
+
+      def providers_url(search_term=nil, per_page=200)
+        "#{api_url}/providers.json?#{URI.encode_www_form({q: search_term, per_page: per_page}.compact)}"
+      end
+
+      def providers_by_ware_url(ware_id, per_page=200)
+        "#{api_url}/wares/#{ware_id}/providers.json?#{URI.encode_www_form({ per_page: per_page }.compact)}"
+      end
+
+      def categories_url
+        "#{api_url}/categories.json"
+      end
+
+      def wares_url(search_term=nil, per_page=200)
+        "#{api_url}/wares.json?#{URI.encode_www_form({q: search_term, per_page: per_page}.compact)}"
+      end
+
+      def wares_by_beacon_url(beacon_slug, per_page=200)
+        "#{api_url}/wares.json?#{URI.encode_www_form({"facets[beacon_ancestor_slugs][]" => beacon_slug, per_page: per_page}.compact)}"
+      end
+
+      def wares_by_provider_url(provider_id, per_page=200)
+        "#{api_url}/providers/#{provider_id}/wares.json?#{URI.encode_www_form({ per_page: per_page }.compact)}"
+      end
+
+      # 'research_area_add_delete' => $scientistUrl . '/api/wares/:ware_id/providers/:provider_id.json',
+      # 'research_area_get'        => $scientistUrl . '/api/wares/:ware_id/providers.json'
+
+      def client_credentials
+        @token ||= JSON.parse(RestClient.get(token_url))
+      end
+
+      def client_credentials_token
+        client_credentials["access_token"]
+      end
+
+      def _providers(search_term=nil)
+        _get(providers_url(search_term))
+      end
+
+      def _provider(provider_id)
+        _get(provider_url(provider_id))
+      end
+
+      def _providers_by_ware(ware_id)
+        _get(providers_by_ware_url(ware_id))
+      end
+
+
+      def _categories
+        _get(categories_url)
+      end
+
+      def _wares_by_beacon(beacon_slug)
+        _get(wares_by_beacon_url(beacon_slug))
+      end
+
+      def _wares_by_provider(provider_id)
+        _get(wares_by_provider_url(provider_id))
+      end
+
+      def _get(url)
+        start_time = Time.now
+        begin
+          response = RestClient.get(url, { Authorization: "Bearer #{client_credentials_token}" })
+          duration = Time.now - start_time
+          result = JSON.parse(response)
+          logger.info([start_time, duration, response.code, response.size, url].join(", "))
+        rescue => e
+          result = nil
+          logger.info([start_time, nil, e.message, nil, url].join(", "))
+        end
+        result
+      end
+
+      def recurse_beacon(beacon, parent_slugs, &block)
+        block.call(beacon, parent_slugs)
+        if beacon["children"]
+          beacon["children"].each do |child|
+            recurse_beacon(child, parent_slugs + [beacon["slug"]], &block)
+          end
+        end
+      end
+    end
+
+    desc "token", "Get client credentials token"
+    def token
+      puts "TOKEN [#{client_credentials_token}]"
+    end
+
+    desc "stress", "Stress test the system"
+    def stress(search_str=nil)
+      puts "finding [#{search_str}]" unless options[:quiet]
+      result = _providers(search_str)
+      result["provider_refs"].each do |provider_ref|
+        puts "provider [#{provider_ref["name"]}]" unless options[:quiet]
+        result = _provider(provider_ref["id"])
+        result = _wares_by_provider(provider_ref["id"])
+        result["ware_refs"].each do |ware_ref|
+          puts "ware [#{provider_ref["name"]}] > [#{ware_ref["name"]}]" unless options[:quiet]
+          result = _providers_by_ware(ware_ref["id"])
+        end
+      end
+      _categories["category_refs"].each do |category_ref|
+        recurse_beacon(category_ref, []) do |beacon, parent_slugs|
+          puts "category [#{(parent_slugs + [beacon["slug"]]).join(" > ")}]" unless options[:quiet]
+          result = _wares_by_beacon(beacon_slug)
+          result["ware_refs"].each do |ware_ref|
+            puts "ware [#{ware_ref["name"]}]" unless options[:quiet]
+            result = _providers_by_ware(ware_ref["id"])
+          end
+        end
+      end
+    end
+
+    desc "providers <SEARCH STRING>", "Find providers (search string optional)"
+    def providers(search_str=nil)
+      result = _providers(search_str)
+      result["provider_refs"].each do |provider_ref|
+        puts CSV.generate_line([provider_ref["id"], provider_ref["name"]]) unless options[:quiet]
+      end
+      pp result if options[:raw]
+    end
+
+    desc "provider PROVIDER_ID", "Load a provider given an idea"
+    def provider(provider_id)
+      result = _provider(provider_id)
+      pp result if options[:raw]
+    end
+
+    desc "provider_wares PROVIDER_ID", "Load a provider's wares given an idea"
+    def provider_wares(provider_id)
+      result = _wares_by_provider(provider_id)
+      result["ware_refs"].each do |ware_ref|
+        puts CSV.generate_line([ware_ref["id"], ware_ref["name"]]) unless options[:quiet]
+      end
+      pp result if options[:raw]
+    end
+
+    desc "categories", "Load the categories"
+    def categories
+      result = _categories
+      result["category_refs"].each do |category_ref|
+        recurse_beacon(category_ref, []) do |beacon, parent_slugs|
+          puts (parent_slugs + [beacon["slug"]]).join(" > ") unless options[:quiet]
+        end
+      end
+      pp result if options[:raw]
+    end
+
+    desc "category_wares BEACON_SLUG", "Load wares by category"
+    def category_wares(beacon_slug)
+      result = _wares_by_beacon(beacon_slug)
+      result["ware_refs"].each do |ware_ref|
+        puts CSV.generate_line([ware_ref["id"], ware_ref["name"]]) unless options[:quiet]
+      end
+      pp result if options[:raw]
+    end
+  end
+end
+
+Status::CLI.start(ARGV)

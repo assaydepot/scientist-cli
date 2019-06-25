@@ -1,0 +1,13 @@
+source 'https://rubygems.org'
+
+# gem 'hashie'
+gem 'httpauth'
+gem 'json'
+# gem 'logger'
+# gem 'memoist'
+# gem 'oauth2-client'
+gem 'pry'
+gem 'rest-client'
+# gem 'sequel'
+# gem 'sqlite3'
+gem 'thor'
