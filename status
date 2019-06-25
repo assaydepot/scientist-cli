@@ -24,7 +24,7 @@ module Status
       end
 
       def protocol
-        "https"
+        ENV["PROTOCOL"] || "https"
       end
 
       def base_url
@@ -51,8 +51,8 @@ module Status
         "#{api_url}/wares/#{ware_id}/providers.json?#{URI.encode_www_form({ per_page: per_page }.compact)}"
       end
 
-      def categories_url
-        "#{api_url}/categories.json"
+      def ware_url(ware_id)
+        "#{api_url}/wares/#{ware_id}.json"
       end
 
       def wares_url(search_term=nil, per_page=200)
@@ -65,6 +65,10 @@ module Status
 
       def wares_by_provider_url(provider_id, per_page=200)
         "#{api_url}/providers/#{provider_id}/wares.json?#{URI.encode_www_form({ per_page: per_page }.compact)}"
+      end
+
+      def categories_url
+        "#{api_url}/categories.json"
       end
 
       # 'research_area_add_delete' => $scientistUrl . '/api/wares/:ware_id/providers/:provider_id.json',
@@ -90,6 +94,13 @@ module Status
         _get(providers_by_ware_url(ware_id))
       end
 
+      def _wares(search_term=nil)
+        _get(wares_url(search_term))
+      end
+
+      def _ware(ware_id)
+        _get(ware_url(ware_id))
+      end
 
       def _categories
         _get(categories_url)
@@ -129,7 +140,9 @@ module Status
 
     desc "token", "Get client credentials token"
     def token
-      puts "TOKEN [#{client_credentials_token}]"
+      token = client_credentials
+      puts "TOKEN [#{token["access_token"]}]" unless options[:quiet]
+      pp token if options[:raw]
     end
 
     desc "stress", "Stress test the system"
@@ -148,7 +161,7 @@ module Status
       _categories["category_refs"].each do |category_ref|
         recurse_beacon(category_ref, []) do |beacon, parent_slugs|
           puts "category [#{(parent_slugs + [beacon["slug"]]).join(" > ")}]" unless options[:quiet]
-          result = _wares_by_beacon(beacon_slug)
+          result = _wares_by_beacon(beacon["slug"])
           result["ware_refs"].each do |ware_ref|
             puts "ware [#{ware_ref["name"]}]" unless options[:quiet]
             result = _providers_by_ware(ware_ref["id"])
@@ -166,17 +179,48 @@ module Status
       pp result if options[:raw]
     end
 
-    desc "provider PROVIDER_ID", "Load a provider given an idea"
+    desc "provider PROVIDER_ID", "Load a provider given an id"
     def provider(provider_id)
       result = _provider(provider_id)
       pp result if options[:raw]
     end
 
-    desc "provider_wares PROVIDER_ID", "Load a provider's wares given an idea"
+    desc "provider_wares PROVIDER_ID", "Load a provider's wares given an id"
     def provider_wares(provider_id)
       result = _wares_by_provider(provider_id)
-      result["ware_refs"].each do |ware_ref|
-        puts CSV.generate_line([ware_ref["id"], ware_ref["name"]]) unless options[:quiet]
+      unless options[:quiet]
+        result["ware_refs"].each do |ware_ref|
+          puts CSV.generate_line([ware_ref["id"], ware_ref["slug"], ware_ref["name"]])
+        end
+      end
+      pp result if options[:raw]
+    end
+
+    desc "wares <SEARCH STRING>", "Find wares (search string optional)"
+    def wares(search_str=nil)
+      result = _wares(search_str)
+      unless options[:quiet]
+        result["ware_refs"].each do |ware_ref|
+          puts CSV.generate_line([ware_ref["id"], ware_ref["slug"], ware_ref["name"]])
+        end
+      end
+      pp result if options[:raw]
+    end
+
+    desc "ware WARE_ID", "Load a ware given an id"
+    def ware(ware_id)
+      result = _ware(ware_id)
+      puts CSV.generate_line([result.dig("ware", "id"), result.dig("ware", "slug"), result.dig("ware", "name")]) unless options[:quiet]
+      pp result if options[:raw]
+    end
+
+    desc "ware_providers WARE_ID", "Load a ware given an id"
+    def ware_providers(ware_id)
+      result = _providers_by_ware(ware_id)
+      unless options[:quiet]
+        result["provider_refs"].each do |provider_ref|
+          puts CSV.generate_line([provider_ref["id"], provider_ref["slug"], provider_ref["name"]])
+        end
       end
       pp result if options[:raw]
     end
