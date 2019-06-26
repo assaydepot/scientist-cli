@@ -214,7 +214,7 @@ module Scientist
       pp result if options[:raw]
     end
 
-    desc "ware_providers WARE_ID", "Load a ware given an id"
+    desc "ware_providers WARE_ID", "Load a ware's providers given an id"
     def ware_providers(ware_id)
       result = _providers_by_ware(ware_id)
       unless options[:quiet]

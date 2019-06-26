@@ -32,7 +32,7 @@ Commands:
   scientist stress                      # Stress test the system
   scientist token                       # Get client credentials token
   scientist ware WARE_ID                # Load a ware given an id
-  scientist ware_providers WARE_ID      # Load a ware given an id
+  scientist ware_providers WARE_ID      # Load a ware's providers given an id
   scientist wares <SEARCH STRING>       # Find wares (search string optional)
 
 Options:
