@@ -28,7 +28,7 @@ module Scientist
       end
 
       def base_url
-        ENV["BASE_URL"] || "nih.scientist.com"
+        ENV["BASE_URL"] || "app.scientist.com"
       end
 
       def token_url
